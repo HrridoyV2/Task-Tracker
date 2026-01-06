@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { User } from '../types';
-import { saveDB } from '../db';
+import { supabase } from '../db';
 
 interface SettingsPageProps {
   user: User;
@@ -15,9 +15,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, users, onUpdate }) =>
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
 
-  const handlePasswordChange = (e: React.FormEvent) => {
+  // Fix: changed function to be async to handle supabase call and replaced saveDB with supabase
+  const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage({ type: '', text: '' });
+
+    // Handle hardcoded admin case separately
+    if (user.employee_id === 'admin') {
+      setMessage({ type: 'error', text: 'Password cannot be changed for the hardcoded admin account.' });
+      return;
+    }
 
     if (currentPassword !== user.password_hash) {
       setMessage({ type: 'error', text: 'Current password is incorrect' });
@@ -29,16 +36,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, users, onUpdate }) =>
       return;
     }
 
-    const updatedUsers = users.map(u => 
-      u.id === user.id ? { ...u, password_hash: newPassword } : u
-    );
+    // Fix: Using supabase instead of non-existent saveDB to update user data
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ password_hash: newPassword })
+        .eq('id', user.id);
 
-    saveDB({ users: updatedUsers });
-    setMessage({ type: 'success', text: 'Password updated successfully!' });
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    onUpdate();
+      if (error) throw error;
+
+      setMessage({ type: 'success', text: 'Password updated successfully!' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      onUpdate();
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to update password. Please check your connection.' });
+    }
   };
 
   return (

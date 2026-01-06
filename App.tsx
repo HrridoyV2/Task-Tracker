@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, Task, Valuation } from './types';
-import { getDB } from './db';
+import { supabase } from './db';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import Sidebar from './components/Sidebar';
@@ -14,13 +14,31 @@ import EmployeesPage from './pages/EmployeesPage';
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activePage, setActivePage] = useState<'dashboard' | 'tasks' | 'valuations' | 'settings' | 'employees'>('dashboard');
-  const [db, setDb] = useState(getDB());
+  const [db, setDb] = useState<{ users: User[]; tasks: Task[]; valuations: Valuation[] }>({ users: [], tasks: [], valuations: [] });
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = async () => {
+    setLoading(true);
+    const [usersRes, tasksRes, valuationsRes] = await Promise.all([
+      supabase.from('users').select('*'),
+      supabase.from('tasks').select('*'),
+      supabase.from('valuations').select('*')
+    ]);
+
+    setDb({
+      users: usersRes.data || [],
+      tasks: tasksRes.data || [],
+      valuations: valuationsRes.data || []
+    });
+    setLoading(false);
+  };
 
   useEffect(() => {
     const savedUser = localStorage.getItem('current_user');
     if (savedUser) {
       setCurrentUser(JSON.parse(savedUser));
     }
+    fetchData();
   }, []);
 
   const handleLogin = (user: User) => {
@@ -33,30 +51,37 @@ const App: React.FC = () => {
     localStorage.removeItem('current_user');
   };
 
-  const updateDB = () => {
-    setDb(getDB());
-  };
+  if (loading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-500 font-medium">Connecting to Workspace...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
-    return <LoginPage onLogin={handleLogin} users={db.users} />;
+    return <LoginPage onLogin={handleLogin} users={db.users} onUpdate={fetchData} />;
   }
 
   const renderPage = () => {
     switch (activePage) {
       case 'dashboard':
-        return <Dashboard user={currentUser} db={db} onUpdate={updateDB} />;
+        return <Dashboard user={currentUser} db={db} onUpdate={fetchData} />;
       case 'tasks':
-        return <TasksPage user={currentUser} db={db} onUpdate={updateDB} />;
+        return <TasksPage user={currentUser} db={db} onUpdate={fetchData} />;
       case 'employees':
         if (currentUser.role !== UserRole.MANAGER) return <div>Access Denied</div>;
-        return <EmployeesPage user={currentUser} db={db} onUpdate={updateDB} />;
+        return <EmployeesPage user={currentUser} db={db} onUpdate={fetchData} />;
       case 'valuations':
         if (currentUser.role !== UserRole.MANAGER) return <div>Access Denied</div>;
-        return <ValuationsPage user={currentUser} db={db} onUpdate={updateDB} />;
+        return <ValuationsPage user={currentUser} db={db} onUpdate={fetchData} />;
       case 'settings':
-        return <SettingsPage user={currentUser} users={db.users} onUpdate={updateDB} />;
+        return <SettingsPage user={currentUser} users={db.users} onUpdate={fetchData} />;
       default:
-        return <Dashboard user={currentUser} db={db} onUpdate={updateDB} />;
+        return <Dashboard user={currentUser} db={db} onUpdate={fetchData} />;
     }
   };
 
