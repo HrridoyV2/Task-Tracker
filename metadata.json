@@ -1,0 +1,5 @@
+{
+  "name": "Employee Task Tracker & Financial Valuation System",
+  "description": "A comprehensive role-based task management system featuring office-hour specific elapsed time tracking and financial valuation based on deliverables.",
+  "requestFramePermissions": []
+}
