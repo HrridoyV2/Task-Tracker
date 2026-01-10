@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [activePage, setActivePage] = useState<'dashboard' | 'tasks' | 'valuations' | 'settings' | 'employees'>('dashboard');
   const [db, setDb] = useState<{ users: User[]; tasks: Task[]; valuations: Valuation[] }>({ users: [], tasks: [], valuations: [] });
   const [loading, setLoading] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -49,6 +50,11 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('current_user');
+  };
+
+  const handlePageChange = (page: any) => {
+    setActivePage(page);
+    setIsMobileMenuOpen(false);
   };
 
   if (loading) {
@@ -86,15 +92,41 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-slate-50">
+      {/* Desktop Sidebar */}
       <Sidebar 
         role={currentUser.role} 
         activePage={activePage} 
-        onPageChange={setActivePage} 
+        onPageChange={handlePageChange} 
         onLogout={handleLogout}
       />
+
+      {/* Mobile Sidebar Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          <div 
+            className="w-64 h-full bg-slate-900 shadow-2xl animate-in slide-in-from-left duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Sidebar 
+              role={currentUser.role} 
+              activePage={activePage} 
+              onPageChange={handlePageChange} 
+              onLogout={handleLogout}
+              isMobile
+            />
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={currentUser} />
+        <Header 
+          user={currentUser} 
+          onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+        />
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           {renderPage()}
         </main>
