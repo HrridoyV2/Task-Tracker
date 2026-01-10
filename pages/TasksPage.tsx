@@ -78,11 +78,10 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
         await supabase.from('tasks').update(updateData).eq('id', editingTask.id);
       } else {
         const code = await generateTaskCode();
-        const insertData = {
+        const insertData: any = {
           task_code: code,
           title: formData.get('title') as string,
           brief: formData.get('brief') as string,
-          assigned_by: user.id,
           assigned_to: formData.get('assigned_to') as string,
           status: TaskStatus.PENDING,
           deadline: formData.get('deadline') as string,
@@ -92,13 +91,20 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
-        await supabase.from('tasks').insert([insertData]);
+
+        if (user.id !== '00000000-0000-0000-0000-000000000000') {
+          insertData.assigned_by = user.id;
+        }
+
+        const { error } = await supabase.from('tasks').insert([insertData]);
+        if (error) throw error;
       }
       setIsModalOpen(false);
       setEditingTask(null);
       onUpdate();
-    } catch (err) {
-      alert('Error saving task');
+    } catch (err: any) {
+      console.error('Task Save Error:', err);
+      alert(`Error: ${err.message || 'Failed to save task'}`);
     } finally {
       setIsSaving(false);
     }
@@ -152,36 +158,53 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">ID</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Assigned Date</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Project Title</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Responsible</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Efficiency</th>
+                {!isManager && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Work Brief</th>}
+                {isManager && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Responsible</th>}
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Deadline</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">ELAPSE HOURS</th>
+                {isManager && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Assigned By</th>}
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-medium">No tasks found in current view</td>
+                  <td colSpan={isManager ? 9 : 7} className="px-6 py-12 text-center text-slate-400 font-medium">No tasks found in current view</td>
                 </tr>
               ) : (
                 filteredTasks.map((task) => {
                   const assignee = db.users.find(u => u.id === task.assigned_to);
+                  const assigner = db.users.find(u => u.id === task.assigned_by);
                   return (
                     <tr key={task.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="px-6 py-4 font-bold text-indigo-600 text-sm">{task.task_code}</td>
                       <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{task.title}</span>
-                          <span className="text-[10px] text-slate-400 font-medium">{new Date(task.deadline).toLocaleDateString()}</span>
-                        </div>
+                        <span className="text-xs font-bold text-slate-600">{new Date(task.created_at).toLocaleDateString()}</span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[10px] font-black">
-                            {assignee?.name.charAt(0)}
+                        <span className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{task.title}</span>
+                      </td>
+                      {!isManager && (
+                        <td className="px-6 py-4">
+                          <p className="text-xs text-slate-500 line-clamp-2 max-w-xs">{task.brief}</p>
+                        </td>
+                      )}
+                      {isManager && (
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[10px] font-black">
+                              {assignee?.name.charAt(0)}
+                            </div>
+                            <span className="text-sm font-semibold text-slate-700">{assignee?.name || 'Unassigned'}</span>
                           </div>
-                          <span className="text-sm font-semibold text-slate-700">{assignee?.name || 'Unassigned'}</span>
-                        </div>
+                        </td>
+                      )}
+                      <td className="px-6 py-4">
+                        <span className="text-xs font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
+                          {new Date(task.deadline).toLocaleDateString()}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex flex-col items-center">
@@ -194,6 +217,11 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                           </span>
                         </div>
                       </td>
+                      {isManager && (
+                        <td className="px-6 py-4">
+                          <span className="text-xs font-bold text-slate-500">{assigner?.name || 'Super Admin'}</span>
+                        </td>
+                      )}
                       <td className="px-6 py-4">
                         <button onClick={() => setEditingTask(task)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
@@ -220,6 +248,16 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
             
             <form onSubmit={handleSave} className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Assigned By (Automated)</label>
+                  <input 
+                    type="text" 
+                    readOnly 
+                    className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-100 text-slate-500 font-bold cursor-not-allowed" 
+                    value={editingTask ? (db.users.find(u => u.id === editingTask.assigned_by)?.name || 'Super Admin') : user.name} 
+                  />
+                </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Assignee</label>
                   <select 

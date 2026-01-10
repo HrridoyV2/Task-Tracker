@@ -19,26 +19,45 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
     setIsSaving(true);
     const formData = new FormData(e.currentTarget);
     
-    const valuationData = {
+    const valuationData: any = {
       title: formData.get('title') as string,
       unit_type: formData.get('unit_type') as string,
       charge_amount: Number(formData.get('charge_amount')),
-      created_by: user.id,
       assignee_id: formData.get('assignee_id') as string,
       is_active: true,
     };
 
+    // Fix for Super Admin foreign key error: 
+    // Only include created_by if the user is not the hardcoded Super Admin
+    if (user.id !== '00000000-0000-0000-0000-000000000000') {
+      valuationData.created_by = user.id;
+    }
+
     try {
       if (editingValuation) {
-        await supabase.from('valuations').update(valuationData).eq('id', editingValuation.id);
+        // Update existing valuation
+        const { error } = await supabase
+          .from('valuations')
+          .update(valuationData)
+          .eq('id', editingValuation.id);
+        
+        if (error) throw error;
       } else {
-        await supabase.from('valuations').insert([{ ...valuationData, created_at: new Date().toISOString() }]);
+        // Insert new valuation
+        valuationData.created_at = new Date().toISOString();
+        const { error } = await supabase
+          .from('valuations')
+          .insert([valuationData]);
+          
+        if (error) throw error;
       }
+      
       setIsModalOpen(false);
       setEditingValuation(null);
       onUpdate();
-    } catch (err) {
-      alert('Failed to save valuation category');
+    } catch (err: any) {
+      console.error('Valuation Save Error:', err);
+      alert(`Error: ${err.message || 'Failed to save valuation category'}`);
     } finally {
       setIsSaving(false);
     }
@@ -47,7 +66,8 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure? This may affect historical financial data for related tasks.')) return;
     try {
-      await supabase.from('valuations').delete().eq('id', id);
+      const { error } = await supabase.from('valuations').delete().eq('id', id);
+      if (error) throw error;
       onUpdate();
     } catch (err) {
       alert('Cannot delete category being used in tasks');
@@ -93,7 +113,7 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
                       </span>
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => setEditingValuation(v)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all">
+                      <button onClick={() => { setEditingValuation(v); setIsModalOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                       </button>
                       <button onClick={() => handleDelete(v.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
@@ -118,7 +138,7 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
             <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-              <h3 className="text-xl font-black text-slate-900 tracking-tight">Financial Rate Config</h3>
+              <h3 className="text-xl font-black text-slate-900 tracking-tight">{editingValuation ? 'Update Rate Config' : 'Financial Rate Config'}</h3>
               <button onClick={() => { setIsModalOpen(false); setEditingValuation(null); }} className="p-2 text-slate-400 hover:text-red-500 rounded-xl transition-all">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
@@ -128,6 +148,7 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
               <div>
                 <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Relates to Assignee</label>
                 <select name="assignee_id" defaultValue={editingValuation?.assignee_id} required className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-black focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+                  <option value="" disabled>Select an employee</option>
                   {assignees.map(a => (
                     <option key={a.id} value={a.id}>{a.name} ({a.employee_id})</option>
                   ))}

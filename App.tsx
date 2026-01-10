@@ -16,7 +16,7 @@ const App: React.FC = () => {
   const [activePage, setActivePage] = useState<'dashboard' | 'tasks' | 'valuations' | 'settings' | 'employees'>('dashboard');
   const [db, setDb] = useState<{ users: User[]; tasks: Task[]; valuations: Valuation[] }>({ users: [], tasks: [], valuations: [] });
   const [loading, setLoading] = useState(true);
-//
+
   const fetchData = async () => {
     setLoading(true);
     const [usersRes, tasksRes, valuationsRes] = await Promise.all([
