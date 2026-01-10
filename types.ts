@@ -5,9 +5,16 @@ export enum UserRole {
 }
 
 export enum TaskStatus {
-  PENDING = 'PENDING',
-  IN_PROGRESS = 'IN_PROGRESS',
-  COMPLETED = 'COMPLETED'
+  RESEARCH = 'Research',
+  IN_PROGRESS = 'In Progress',
+  UNDER_REVIEW = 'Under Review',
+  CORRECTION = 'Correction',
+  DONE = 'Done',
+  ASSIGN = 'Assign',
+  FORWARD = 'Forward',
+  FAILED = 'Failed',
+  FIRST_ATTEMPT = '1st attempt',
+  HOLD = 'Hold'
 }
 
 export interface User {
@@ -27,7 +34,7 @@ export interface Valuation {
   unit_type: string;
   charge_amount: number;
   created_by: string;
-  assignee_id: string; // Linked to a specific assignee
+  assignee_id: string;
   is_active: boolean;
   created_at: string;
 }
@@ -37,8 +44,8 @@ export interface Task {
   task_code: string;
   title: string;
   brief: string;
-  assigned_by: string; // User ID
-  assigned_to: string; // User ID
+  assigned_by: string;
+  assigned_to: string;
   status: TaskStatus;
   deadline: string;
   task_start_time: string;

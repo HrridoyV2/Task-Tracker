@@ -9,6 +9,19 @@ interface TasksPageProps {
   onUpdate: () => void;
 }
 
+const getStatusColor = (status: TaskStatus) => {
+  switch (status) {
+    case TaskStatus.DONE: return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    case TaskStatus.IN_PROGRESS: return 'bg-blue-100 text-blue-700 border-blue-200';
+    case TaskStatus.UNDER_REVIEW: return 'bg-amber-100 text-amber-700 border-amber-200';
+    case TaskStatus.CORRECTION: return 'bg-orange-100 text-orange-700 border-orange-200';
+    case TaskStatus.FAILED: return 'bg-red-100 text-red-700 border-red-200';
+    case TaskStatus.HOLD: return 'bg-slate-200 text-slate-700 border-slate-300';
+    case TaskStatus.RESEARCH: return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+    default: return 'bg-slate-100 text-slate-600 border-slate-200';
+  }
+};
+
 const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -58,7 +71,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
     
     try {
       if (editingTask) {
-        const endTime = status === TaskStatus.COMPLETED ? new Date().toISOString() : editingTask.task_end_time;
+        const endTime = status === TaskStatus.DONE ? new Date().toISOString() : editingTask.task_end_time;
         const elapsed = endTime ? calculateElapsedHours(editingTask.task_start_time, endTime) : editingTask.elapsed_hours;
 
         const updateData = {
@@ -82,7 +95,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
           title: formData.get('title') as string,
           brief: formData.get('brief') as string,
           assigned_to: formData.get('assigned_to') as string,
-          status: TaskStatus.PENDING,
+          status: status || TaskStatus.RESEARCH,
           deadline: formData.get('deadline') as string,
           valuation_id: formData.get('valuation_id') as string,
           deliverable_count: Number(formData.get('deliverable_count')) || 1,
@@ -113,8 +126,8 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Task Operations</h1>
-          <p className="text-slate-500">Coordinate workflow and track deliverable efficiency</p>
+          <h1 className="text-2xl font-black text-slate-900">Task Operations</h1>
+          <p className="text-slate-500 font-medium">Coordinate workflow and track deliverable efficiency</p>
         </div>
         {isManager && (
           <button 
@@ -137,9 +150,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
         />
         <select className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="ALL">All Statuses</option>
-          <option value={TaskStatus.PENDING}>Pending</option>
-          <option value={TaskStatus.IN_PROGRESS}>In Progress</option>
-          <option value={TaskStatus.COMPLETED}>Completed</option>
+          {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         {isManager && (
           <select className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer" value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
@@ -156,41 +167,37 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
           <table className="w-full text-left">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">ID</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Assigned Date</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Project Title</th>
-                {!isManager && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Work Brief</th>}
-                {isManager && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Responsible</th>}
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Deadline</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">ELAPSE HOURS</th>
-                {isManager && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Assigned By</th>}
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">ID</th>
+                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Assigned</th>
+                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Project</th>
+                {isManager ? (
+                  <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Responsible</th>
+                ) : (
+                  <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Work Brief</th>
+                )}
+                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Deadline</th>
+                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest text-center">ELAPSED</th>
+                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={isManager ? 9 : 7} className="px-6 py-12 text-center text-slate-400 font-medium">No tasks found in current view</td>
+                  <td colSpan={isManager ? 9 : 7} className="px-6 py-12 text-center text-slate-400 font-medium">No tasks found</td>
                 </tr>
               ) : (
                 filteredTasks.map((task) => {
                   const assignee = db.users.find(u => u.id === task.assigned_to);
-                  const assigner = db.users.find(u => u.id === task.assigned_by);
                   return (
                     <tr key={task.id} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-6 py-4 font-bold text-indigo-600 text-sm">{task.task_code}</td>
+                      <td className="px-6 py-4 font-black text-indigo-600 text-sm">{task.task_code}</td>
                       <td className="px-6 py-4">
                         <span className="text-xs font-bold text-slate-600">{new Date(task.created_at).toLocaleDateString()}</span>
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{task.title}</span>
                       </td>
-                      {!isManager && (
-                        <td className="px-6 py-4">
-                          <p className="text-xs text-slate-500 line-clamp-2 max-w-xs">{task.brief}</p>
-                        </td>
-                      )}
-                      {isManager && (
+                      {isManager ? (
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[10px] font-black">
@@ -199,6 +206,10 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                             <span className="text-sm font-semibold text-slate-700">{assignee?.name || 'Unassigned'}</span>
                           </div>
                         </td>
+                      ) : (
+                        <td className="px-6 py-4">
+                          <p className="text-xs text-slate-500 line-clamp-2 max-w-xs">{task.brief}</p>
+                        </td>
                       )}
                       <td className="px-6 py-4">
                         <span className="text-xs font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
@@ -206,21 +217,13 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <div className="flex flex-col items-center">
+                        <div className="flex flex-col items-center gap-1">
                           <span className="text-sm font-black text-slate-900">{task.elapsed_hours}h</span>
-                          <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${
-                            task.status === TaskStatus.COMPLETED ? 'bg-emerald-100 text-emerald-700' :
-                            task.status === TaskStatus.IN_PROGRESS ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'
-                          }`}>
+                          <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${getStatusColor(task.status)}`}>
                             {task.status}
                           </span>
                         </div>
                       </td>
-                      {isManager && (
-                        <td className="px-6 py-4">
-                          <span className="text-xs font-bold text-slate-500">{assigner?.name || 'Super Admin'}</span>
-                        </td>
-                      )}
                       <td className="px-6 py-4">
                         <button onClick={() => setEditingTask(task)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
@@ -239,7 +242,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
             <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="text-xl font-black text-slate-900 tracking-tight">{editingTask ? 'Edit Active Task' : 'Initiate New Work'}</h3>
+              <h3 className="text-xl font-black text-slate-900 tracking-tight">{editingTask ? 'Edit Task Lifecycle' : 'Initiate New Project'}</h3>
               <button onClick={() => { setIsModalOpen(false); setEditingTask(null); }} className="text-slate-400 hover:text-red-500 p-2 rounded-xl transition-colors">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
@@ -247,16 +250,6 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
             
             <form onSubmit={handleSave} className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Assigned By (Automated)</label>
-                  <input 
-                    type="text" 
-                    readOnly 
-                    className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-100 text-slate-500 font-bold cursor-not-allowed" 
-                    value={editingTask ? (db.users.find(u => u.id === editingTask.assigned_by)?.name || 'Super Admin') : user.name} 
-                  />
-                </div>
-
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Assignee</label>
                   <select 
@@ -275,19 +268,26 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
 
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Title of Project</label>
-                  <input name="title" defaultValue={editingTask?.title} required readOnly={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-bold placeholder-slate-300" placeholder="e.g. Social Media Campaign Q1" />
+                  <input name="title" defaultValue={editingTask?.title} required readOnly={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-bold placeholder-slate-300" placeholder="e.g. Content Creation for Brand X" />
                 </div>
                 
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Work Brief</label>
-                  <textarea name="brief" rows={2} defaultValue={editingTask?.brief} required readOnly={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium resize-none placeholder-slate-300" placeholder="Summary of deliverables..."></textarea>
+                  <textarea name="brief" rows={2} defaultValue={editingTask?.brief} required readOnly={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium resize-none placeholder-slate-300" placeholder="Project details..."></textarea>
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">Financial Valuation Basis (Filtered by Assignee)</label>
-                  <select name="valuation_id" defaultValue={editingTask?.valuation_id} required disabled={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+                  <label className="block text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">Lifecycle Status</label>
+                  <select name="status" defaultValue={editingTask?.status || TaskStatus.RESEARCH} required className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-black focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+                    {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Financial Valuation</label>
+                  <select name="valuation_id" defaultValue={editingTask?.valuation_id} required disabled={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500">
                     {filteredValuationsForForm.length === 0 ? (
-                      <option disabled>No valuations linked to this employee</option>
+                      <option disabled>No rates linked to this assignee</option>
                     ) : (
                       filteredValuationsForForm.map(v => (
                         <option key={v.id} value={v.id}>{v.title} — ৳{v.charge_amount}</option>
@@ -305,29 +305,20 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Deliverable Units</label>
                   <input type="number" name="deliverable_count" min="1" defaultValue={editingTask?.deliverable_count || 1} required className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-bold" />
                 </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">Current Lifecycle Status</label>
-                  <select name="status" defaultValue={editingTask?.status || TaskStatus.PENDING} required className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-black focus:ring-2 focus:ring-indigo-500 cursor-pointer">
-                    <option value={TaskStatus.PENDING}>Pending Launch</option>
-                    <option value={TaskStatus.IN_PROGRESS}>Work In Progress</option>
-                    <option value={TaskStatus.COMPLETED}>Mark as Completed</option>
-                  </select>
-                </div>
                 
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Deliverable URL / Output Proof</label>
-                  <textarea name="output" defaultValue={editingTask?.output} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium resize-none placeholder-slate-300" placeholder="https://... or completion summary"></textarea>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Output Proof / URL</label>
+                  <textarea name="output" defaultValue={editingTask?.output} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium resize-none placeholder-slate-300" placeholder="Paste link or notes here..."></textarea>
                 </div>
               </div>
 
-              <div className="pt-6 flex gap-3">
+              <div className="pt-6">
                 <button 
                   type="submit" 
                   disabled={isSaving}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-100 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center uppercase tracking-widest text-sm"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-100 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center uppercase tracking-widest text-sm"
                 >
-                  {isSaving ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (editingTask ? 'Save Updates' : 'Launch Task')}
+                  {isSaving ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (editingTask ? 'Update Task' : 'Commit Task')}
                 </button>
               </div>
             </form>
