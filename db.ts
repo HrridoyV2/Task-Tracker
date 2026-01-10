@@ -1,9 +1,11 @@
-
 import { createClient } from '@supabase/supabase-js';
 import { User, Task } from './types';
 
-const SUPABASE_URL = 'https://ippnrisnomndllfskxbn.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_5_CnXh46ugjutHA6PitJgg_Y9cRbuny';
+// Access keys from environment variables (standard for Netlify)
+// Note: Netlify injects variables into the environment. 
+// For client-side apps using ESM/Vite/Build tools, process.env is often shimmed.
+const SUPABASE_URL = (typeof process !== 'undefined' && process.env.SUPABASE_URL) || 'https://ippnrisnomndllfskxbn.supabase.co';
+const SUPABASE_KEY = (typeof process !== 'undefined' && process.env.SUPABASE_KEY) || 'sb_publishable_5_CnXh46ugjutHA6PitJgg_Y9cRbuny';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, Task, Valuation, TaskStatus } from '../types';
 import { generateTaskCode, supabase } from '../db';
