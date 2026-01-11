@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, Task, Valuation, TaskStatus } from '../types';
 import { generateTaskCode, supabase } from '../db';
@@ -23,7 +22,7 @@ const getStatusColor = (status: TaskStatus) => {
   }
 };
 
-const WEBHOOK_URL = 'https://n8n.mutho.tech/webhook/task-tracker';
+const WEBHOOK_URL = 'https://n8n.mutho.tech/webhook-test/task-tracker';
 
 const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,14 +36,20 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
 
   const isManager = user.role === UserRole.MANAGER;
 
+  // Potential assignees are all active users except the hardcoded super admin reference
+  const potentialAssignees = useMemo(() => {
+    return db.users.filter(u => u.is_active && u.id !== '00000000-0000-0000-0000-000000000000');
+  }, [db.users]);
+
   useEffect(() => {
     if (editingTask) {
       setSelectedAssigneeInForm(editingTask.assigned_to);
     } else if (isModalOpen) {
-      const firstAssignee = db.users.find(u => u.role === UserRole.ASSIGNEE);
-      if (firstAssignee) setSelectedAssigneeInForm(firstAssignee.id);
+      if (potentialAssignees.length > 0) {
+        setSelectedAssigneeInForm(potentialAssignees[0].id);
+      }
     }
-  }, [editingTask, isModalOpen, db.users]);
+  }, [editingTask, isModalOpen, potentialAssignees]);
 
   const filteredTasks = useMemo(() => {
     let result = [...db.tasks];
@@ -72,7 +77,6 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
     try {
       const assigneeUser = db.users.find(u => u.id === taskData.assigned_to);
       const managerUser = db.users.find(u => u.id === taskData.assigned_by);
-      // Fix: Corrected property access to valuations from the db object
       const valuation = db.valuations.find(v => v.id === taskData.valuation_id);
 
       const payload = {
@@ -85,7 +89,9 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
         task: {
           ...taskData,
           assignee_name: assigneeUser?.name || 'Unknown',
-          manager_name: managerUser?.name || 'Super Admin',
+          assignee_telegram: assigneeUser?.telegram_number || 'N/A',
+          manager_name: managerUser?.name || user.name,
+          manager_telegram: managerUser?.telegram_number || user.telegram_number || 'N/A',
           valuation_title: valuation?.title || 'N/A',
           valuation_amount: valuation?.charge_amount || 0
         },
@@ -128,23 +134,30 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
 
         if (isManager) {
           updateData.assigned_to = formData.get('assigned_to') as string;
-        } else {
-          updateData.assigned_to = editingTask.assigned_to;
-          updateData.assigned_by = editingTask.assigned_by;
         }
 
         const { error, data } = await supabase.from('tasks').update(updateData).eq('id', editingTask.id).select().single();
         if (error) throw error;
         
-        // Trigger Webhook on Update
         sendWebhook(data, 'update');
       } else {
         const code = await generateTaskCode();
+        
+        let realAssignedBy = user.id;
+        if (user.id === '00000000-0000-0000-0000-000000000000') {
+          const firstRealManager = db.users.find(u => u.role === UserRole.MANAGER && u.id !== '00000000-0000-0000-0000-000000000000');
+          if (!firstRealManager) {
+            throw new Error("Please create at least one Manager account first.");
+          }
+          realAssignedBy = firstRealManager.id;
+        }
+
         const insertData: any = {
           task_code: code,
           title: formData.get('title') as string,
           brief: formData.get('brief') as string,
           assigned_to: formData.get('assigned_to') as string,
+          assigned_by: realAssignedBy,
           status: status || TaskStatus.RESEARCH,
           deadline: formData.get('deadline') as string,
           valuation_id: formData.get('valuation_id') as string,
@@ -154,16 +167,9 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
           updated_at: new Date().toISOString()
         };
 
-        if (user.id !== '00000000-0000-0000-0000-000000000000') {
-          insertData.assigned_by = user.id;
-        } else {
-          insertData.assigned_by = '00000000-0000-0000-0000-000000000000';
-        }
-
         const { error, data } = await supabase.from('tasks').insert([insertData]).select().single();
         if (error) throw error;
 
-        // Trigger Webhook on Create
         sendWebhook(data, 'create');
       }
       setIsModalOpen(false);
@@ -209,16 +215,16 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
         </select>
         {isManager && (
           <select className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer" value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
-            <option value="ALL">All Assignees</option>
-            {db.users.filter(u => u.role === UserRole.ASSIGNEE).map(u => (
-              <option key={u.id} value={u.id}>{u.name}</option>
+            <option value="ALL">All Responsible</option>
+            {potentialAssignees.map(u => (
+              <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
             ))}
           </select>
         )}
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100">
-        <div className="overflow-x-auto md:overflow-visible">
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="overflow-x-auto">
           <table className="w-full text-left table-auto">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
@@ -230,17 +236,16 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                   <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Assigned By</th>
                 )}
                 <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Brief</th>
-                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Assigned Date</th>
                 <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Deadline</th>
                 <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
-                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Elapse Hours</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Hours</th>
                 <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 text-[13px]">
               {filteredTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-slate-400 font-medium">No tasks found</td>
+                  <td colSpan={8} className="px-6 py-12 text-center text-slate-400 font-medium">No tasks found</td>
                 </tr>
               ) : (
                 filteredTasks.map((task) => {
@@ -249,9 +254,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                   return (
                     <tr key={task.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="px-3 py-4">
-                        <span className="font-black text-indigo-600 whitespace-nowrap">
-                          {task.task_code}
-                        </span>
+                        <span className="font-black text-indigo-600 whitespace-nowrap">{task.task_code}</span>
                       </td>
                       <td className="px-3 py-4">
                         <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1 max-w-[120px]">{task.title}</span>
@@ -259,7 +262,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                       {isManager ? (
                         <td className="px-3 py-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0 ${assignee?.role === UserRole.MANAGER ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
                               {assignee?.name.charAt(0)}
                             </div>
                             <span className="font-semibold text-slate-700 truncate max-w-[80px]">{assignee?.name || 'Unassigned'}</span>
@@ -271,22 +274,11 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                         </td>
                       )}
                       <td className="px-3 py-4 relative group/brief">
-                        <p className="text-slate-500 line-clamp-2 max-w-[180px] font-medium leading-tight cursor-help hover:text-indigo-600 transition-colors">
-                          {task.brief}
-                        </p>
-                        <div className="absolute left-0 bottom-full mb-2 z-50 w-72 p-4 bg-slate-900 text-white text-[12px] rounded-xl shadow-2xl opacity-0 translate-y-2 group-hover/brief:opacity-100 group-hover/brief:translate-y-0 transition-all duration-200 leading-relaxed select-text pointer-events-auto">
-                          <p className="font-black mb-1 text-indigo-400 uppercase tracking-widest border-b border-slate-700 pb-1 flex justify-between items-center">
-                            <span>Full Work Brief</span>
-                            <span className="text-[9px] text-slate-500 font-normal">Selectable Text</span>
-                          </p>
-                          <div className="max-h-48 overflow-y-auto pr-1 custom-scrollbar">
-                            {task.brief}
-                          </div>
-                          <div className="absolute left-6 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-slate-900"></div>
+                        <p className="text-slate-500 line-clamp-2 max-w-[180px] font-medium leading-tight cursor-help">{task.brief}</p>
+                        <div className="absolute left-0 bottom-full mb-2 z-50 w-72 p-4 bg-slate-900 text-white text-[12px] rounded-xl shadow-2xl opacity-0 invisible group-hover/brief:opacity-100 group-hover/brief:visible transition-all">
+                          <p className="font-black mb-1 text-indigo-400 uppercase tracking-widest border-b border-slate-700 pb-1">Work Brief</p>
+                          <div className="max-h-48 overflow-y-auto">{task.brief}</div>
                         </div>
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap">
-                        <span className="font-bold text-slate-600">{new Date(task.created_at).toLocaleDateString()}</span>
                       </td>
                       <td className="px-3 py-4 whitespace-nowrap">
                         <span className="font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
@@ -328,7 +320,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
             <form onSubmit={handleSave} className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Assignee</label>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Assign To (User/Manager)</label>
                   <select 
                     name="assigned_to" 
                     value={selectedAssigneeInForm} 
@@ -337,20 +329,15 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                     disabled={!isManager && !!editingTask}
                     className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
-                    {db.users.filter(u => u.role === UserRole.ASSIGNEE).map(u => (
-                      <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>
+                    {potentialAssignees.map(u => (
+                      <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
                     ))}
-                    {editingTask && !db.users.find(u => u.id === editingTask.assigned_to) && (
-                      <option value={editingTask.assigned_to}>
-                        {db.users.find(u => u.id === editingTask.assigned_to)?.name || 'Current Assignee'}
-                      </option>
-                    )}
                   </select>
                 </div>
 
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Title of Project</label>
-                  <input name="title" defaultValue={editingTask?.title} required readOnly={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-bold placeholder-slate-300" placeholder="e.g. Content Creation for Brand X" />
+                  <input name="title" defaultValue={editingTask?.title} required readOnly={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-bold placeholder-slate-300" placeholder="e.g. Content Creation" />
                 </div>
                 
                 <div className="md:col-span-2">
@@ -369,7 +356,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Financial Valuation</label>
                   <select name="valuation_id" defaultValue={editingTask?.valuation_id} required disabled={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500">
                     {filteredValuationsForForm.length === 0 ? (
-                      <option disabled>No rates linked to this assignee</option>
+                      <option disabled>No rates linked to this user</option>
                     ) : (
                       filteredValuationsForForm.map(v => (
                         <option key={v.id} value={v.id}>{v.title} — ৳{v.charge_amount}</option>
@@ -379,12 +366,12 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Submission Deadline</label>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Deadline</label>
                   <input type="date" name="deadline" defaultValue={editingTask?.deadline ? new Date(editingTask.deadline).toISOString().split('T')[0] : ''} required readOnly={!isManager && !!editingTask} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-bold" />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Deliverable Units</label>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Deliverables</label>
                   <input type="number" name="deliverable_count" min="1" defaultValue={editingTask?.deliverable_count || 1} required className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-bold" />
                 </div>
                 

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User, UserRole } from '../types';
 import { supabase } from '../db';
@@ -19,26 +18,55 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ db, onUpdate }) => {
     setIsSaving(true);
     const formData = new FormData(e.currentTarget);
     
-    const userData = {
+    const telegramValue = formData.get('telegram_number') as string;
+    
+    // Create the full object with telegram
+    const userData: any = {
       employee_id: formData.get('employee_id') as string,
       name: formData.get('name') as string,
       role: formData.get('role') as string,
-      password_hash: formData.get('password') as string || editingUser?.password_hash || 'password',
+      telegram_number: telegramValue || null,
       salary: Number(formData.get('salary')),
       is_active: formData.get('is_active') === 'true',
     };
 
+    const password = formData.get('password') as string;
+    if (password) {
+      userData.password_hash = password;
+    } else if (!editingUser) {
+      userData.password_hash = 'password';
+    }
+
     try {
-      if (editingUser) {
-        await supabase.from('users').update(userData).eq('id', editingUser.id);
-      } else {
-        await supabase.from('users').insert([{ ...userData, created_at: new Date().toISOString() }]);
+      // 1. Try to save with telegram_number
+      let { error } = editingUser 
+        ? await supabase.from('users').update(userData).eq('id', editingUser.id)
+        : await supabase.from('users').insert([{ ...userData, created_at: new Date().toISOString() }]);
+
+      // 2. If it fails specifically because of the missing column (PGRST204)
+      if (error && (error.code === 'PGRST204' || error.message?.includes('telegram_number'))) {
+        console.warn("Retrying save without telegram_number due to missing column in DB.");
+        
+        // Remove the problematic field
+        const { telegram_number, ...safeUserData } = userData;
+        
+        const retryResult = editingUser
+          ? await supabase.from('users').update(safeUserData).eq('id', editingUser.id)
+          : await supabase.from('users').insert([{ ...safeUserData, created_at: new Date().toISOString() }]);
+        
+        if (retryResult.error) throw retryResult.error;
+        
+        alert("Success, but Telegram was NOT saved. \n\nReason: The database column 'telegram_number' is missing or not synced yet. \n\nAction: Go to Supabase SQL Editor and run: \nALTER TABLE users ADD COLUMN telegram_number TEXT;");
+      } else if (error) {
+        throw error;
       }
+
       setIsModalOpen(false);
       setEditingUser(null);
       onUpdate();
-    } catch (err) {
-      alert('Failed to save employee record');
+    } catch (err: any) {
+      console.error('Employee Save Error:', err);
+      alert(err.message || 'Failed to save employee record');
     } finally {
       setIsSaving(false);
     }
@@ -76,7 +104,15 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ db, onUpdate }) => {
             {db.users.map((emp) => (
               <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
                 <td className="px-6 py-4 font-bold text-indigo-600">{emp.employee_id}</td>
-                <td className="px-6 py-4 font-medium text-slate-900">{emp.name}</td>
+                <td className="px-6 py-4">
+                  <div className="flex flex-col">
+                    <span className="font-medium text-slate-900">{emp.name}</span>
+                    <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                      <svg className="w-3 h-3 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.11.02-1.93 1.23-5.46 3.62-.51.35-.98.52-1.4.51-.46-.01-1.35-.26-2.01-.48-.81-.27-1.45-.42-1.39-.89.03-.24.36-.49.99-.74 3.89-1.69 6.48-2.8 7.77-3.32 3.7-1.48 4.47-1.74 4.97-1.75.11 0 .36.03.52.16.14.11.18.26.19.38.01.07.01.2-.01.35z"/></svg>
+                      {emp.telegram_number || 'No Telegram'}
+                    </span>
+                  </div>
+                </td>
                 <td className="px-6 py-4">
                   <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${emp.role === UserRole.MANAGER ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
                     {emp.role}
@@ -130,10 +166,18 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ db, onUpdate }) => {
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Employee Identifier</label>
                 <input name="employee_id" defaultValue={editingUser?.employee_id} required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder="MGR-00X or EMP-00X" />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Display Name</label>
-                <input name="name" defaultValue={editingUser?.name} required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder="Enter Full Name" />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Display Name</label>
+                  <input name="name" defaultValue={editingUser?.name} required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder="Full Name" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Telegram Number</label>
+                  <input name="telegram_number" type="tel" pattern="[0-9]*" defaultValue={editingUser?.telegram_number} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder="8801XXXXXXXXX" />
+                </div>
               </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Access Token (Password)</label>
                 <input name="password" type="password" required={!editingUser} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder={editingUser ? "Leave blank to keep same" : "Set secure password"} />

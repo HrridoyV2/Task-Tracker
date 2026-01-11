@@ -24,6 +24,7 @@ export interface User {
   role: UserRole;
   password_hash: string;
   salary: number;
+  telegram_number?: string;
   is_active: boolean;
   created_at: string;
 }

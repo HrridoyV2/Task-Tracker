@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User, Valuation, UserRole } from '../types';
 import { supabase } from '../db';
@@ -27,15 +26,12 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
       is_active: true,
     };
 
-    // Fix for Super Admin foreign key error: 
-    // Only include created_by if the user is not the hardcoded Super Admin
     if (user.id !== '00000000-0000-0000-0000-000000000000') {
       valuationData.created_by = user.id;
     }
 
     try {
       if (editingValuation) {
-        // Update existing valuation
         const { error } = await supabase
           .from('valuations')
           .update(valuationData)
@@ -43,7 +39,6 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
         
         if (error) throw error;
       } else {
-        // Insert new valuation
         valuationData.created_at = new Date().toISOString();
         const { error } = await supabase
           .from('valuations')
@@ -74,14 +69,15 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
     }
   };
 
-  const assignees = db.users.filter(u => u.role === UserRole.ASSIGNEE);
+  // Allow all active users except the super admin to have valuation rates
+  const potentialRateHolders = db.users.filter(u => u.is_active && u.id !== '00000000-0000-0000-0000-000000000000');
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Financial Valuation Matrix</h1>
-          <p className="text-slate-500">Define agency-standard charges linked to specific employees</p>
+          <p className="text-slate-500">Define agency-standard charges linked to specific users or managers</p>
         </div>
         <button 
           onClick={() => { setEditingValuation(null); setIsModalOpen(true); }}
@@ -108,7 +104,7 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
                       <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 font-black mb-2 shadow-sm">
                         ৳
                       </div>
-                      <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-full inline-block border border-indigo-100">
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full inline-block border ${assignee?.role === UserRole.MANAGER ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-indigo-50 text-indigo-600 border-indigo-100'}`}>
                         {assignee?.name || 'Unassigned'}
                       </span>
                     </div>
@@ -146,11 +142,11 @@ const ValuationsPage: React.FC<ValuationsPageProps> = ({ user, db, onUpdate }) =
             
             <form onSubmit={handleSubmit} className="p-8 space-y-6">
               <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Relates to Assignee</label>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Relates to User/Manager</label>
                 <select name="assignee_id" defaultValue={editingValuation?.assignee_id} required className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-black focus:ring-2 focus:ring-indigo-500 cursor-pointer">
-                  <option value="" disabled>Select an employee</option>
-                  {assignees.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.employee_id})</option>
+                  <option value="" disabled>Select an account</option>
+                  {potentialRateHolders.map(a => (
+                    <option key={a.id} value={a.id}>{a.name} ({a.employee_id}) - {a.role}</option>
                   ))}
                 </select>
               </div>
