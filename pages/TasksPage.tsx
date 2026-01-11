@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, Task, Valuation, TaskStatus } from '../types';
 import { generateTaskCode, supabase } from '../db';
@@ -22,6 +23,8 @@ const getStatusColor = (status: TaskStatus) => {
   }
 };
 
+const WEBHOOK_URL = 'https://n8n.mutho.tech/webhook/task-tracker';
+
 const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -45,6 +48,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
 
   const filteredTasks = useMemo(() => {
     let result = [...db.tasks];
+    
     if (!isManager) {
       result = result.filter(t => t.assigned_to === user.id);
     } else if (assigneeFilter !== 'ALL') {
@@ -56,12 +60,47 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
       const lowerSearch = searchTerm.toLowerCase();
       result = result.filter(t => t.title.toLowerCase().includes(lowerSearch) || t.task_code.toLowerCase().includes(lowerSearch));
     }
+    
     return result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [db.tasks, isManager, user.id, statusFilter, assigneeFilter, searchTerm]);
 
   const filteredValuationsForForm = useMemo(() => {
     return db.valuations.filter(v => v.assignee_id === selectedAssigneeInForm);
   }, [db.valuations, selectedAssigneeInForm]);
+
+  const sendWebhook = async (taskData: any, action: 'create' | 'update') => {
+    try {
+      const assigneeUser = db.users.find(u => u.id === taskData.assigned_to);
+      const managerUser = db.users.find(u => u.id === taskData.assigned_by);
+      // Fix: Corrected property access to valuations from the db object
+      const valuation = db.valuations.find(v => v.id === taskData.valuation_id);
+
+      const payload = {
+        action,
+        triggered_by: {
+          id: user.id,
+          name: user.name,
+          role: user.role
+        },
+        task: {
+          ...taskData,
+          assignee_name: assigneeUser?.name || 'Unknown',
+          manager_name: managerUser?.name || 'Super Admin',
+          valuation_title: valuation?.title || 'N/A',
+          valuation_amount: valuation?.charge_amount || 0
+        },
+        timestamp: new Date().toISOString()
+      };
+
+      await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.error('Webhook failed to send:', err);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -74,10 +113,9 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
         const endTime = status === TaskStatus.DONE ? new Date().toISOString() : editingTask.task_end_time;
         const elapsed = endTime ? calculateElapsedHours(editingTask.task_start_time, endTime) : editingTask.elapsed_hours;
 
-        const updateData = {
+        const updateData: Partial<Task> = {
           title: formData.get('title') as string,
           brief: formData.get('brief') as string,
-          assigned_to: formData.get('assigned_to') as string,
           status: status,
           deadline: formData.get('deadline') as string,
           valuation_id: formData.get('valuation_id') as string,
@@ -87,7 +125,19 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
           elapsed_hours: elapsed,
           updated_at: new Date().toISOString()
         };
-        await supabase.from('tasks').update(updateData).eq('id', editingTask.id);
+
+        if (isManager) {
+          updateData.assigned_to = formData.get('assigned_to') as string;
+        } else {
+          updateData.assigned_to = editingTask.assigned_to;
+          updateData.assigned_by = editingTask.assigned_by;
+        }
+
+        const { error, data } = await supabase.from('tasks').update(updateData).eq('id', editingTask.id).select().single();
+        if (error) throw error;
+        
+        // Trigger Webhook on Update
+        sendWebhook(data, 'update');
       } else {
         const code = await generateTaskCode();
         const insertData: any = {
@@ -106,10 +156,15 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
 
         if (user.id !== '00000000-0000-0000-0000-000000000000') {
           insertData.assigned_by = user.id;
+        } else {
+          insertData.assigned_by = '00000000-0000-0000-0000-000000000000';
         }
 
-        const { error } = await supabase.from('tasks').insert([insertData]);
+        const { error, data } = await supabase.from('tasks').insert([insertData]).select().single();
         if (error) throw error;
+
+        // Trigger Webhook on Create
+        sendWebhook(data, 'create');
       }
       setIsModalOpen(false);
       setEditingTask(null);
@@ -162,71 +217,93 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
         )}
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100">
+        <div className="overflow-x-auto md:overflow-visible">
+          <table className="w-full text-left table-auto">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
-                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">ID</th>
-                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Assigned</th>
-                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Project</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Task ID</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Task Name</th>
                 {isManager ? (
-                  <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Responsible</th>
+                  <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Responsible</th>
                 ) : (
-                  <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Work Brief</th>
+                  <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Assigned By</th>
                 )}
-                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Deadline</th>
-                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest text-center">ELAPSED</th>
-                <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase tracking-widest">Actions</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Brief</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Assigned Date</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Deadline</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Elapse Hours</th>
+                <th className="px-3 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-slate-50 text-[13px]">
               {filteredTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={isManager ? 9 : 7} className="px-6 py-12 text-center text-slate-400 font-medium">No tasks found</td>
+                  <td colSpan={9} className="px-6 py-12 text-center text-slate-400 font-medium">No tasks found</td>
                 </tr>
               ) : (
                 filteredTasks.map((task) => {
                   const assignee = db.users.find(u => u.id === task.assigned_to);
+                  const manager = db.users.find(u => u.id === task.assigned_by);
                   return (
                     <tr key={task.id} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-6 py-4 font-black text-indigo-600 text-sm">{task.task_code}</td>
-                      <td className="px-6 py-4">
-                        <span className="text-xs font-bold text-slate-600">{new Date(task.created_at).toLocaleDateString()}</span>
+                      <td className="px-3 py-4">
+                        <span className="font-black text-indigo-600 whitespace-nowrap">
+                          {task.task_code}
+                        </span>
                       </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{task.title}</span>
+                      <td className="px-3 py-4">
+                        <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1 max-w-[120px]">{task.title}</span>
                       </td>
                       {isManager ? (
-                        <td className="px-6 py-4">
+                        <td className="px-3 py-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[10px] font-black">
+                            <div className="w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0">
                               {assignee?.name.charAt(0)}
                             </div>
-                            <span className="text-sm font-semibold text-slate-700">{assignee?.name || 'Unassigned'}</span>
+                            <span className="font-semibold text-slate-700 truncate max-w-[80px]">{assignee?.name || 'Unassigned'}</span>
                           </div>
                         </td>
                       ) : (
-                        <td className="px-6 py-4">
-                          <p className="text-xs text-slate-500 line-clamp-2 max-w-xs">{task.brief}</p>
+                        <td className="px-3 py-4">
+                           <span className="font-semibold text-slate-700 truncate max-w-[80px]">{manager?.name || 'Super Admin'}</span>
                         </td>
                       )}
-                      <td className="px-6 py-4">
-                        <span className="text-xs font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
+                      <td className="px-3 py-4 relative group/brief">
+                        <p className="text-slate-500 line-clamp-2 max-w-[180px] font-medium leading-tight cursor-help hover:text-indigo-600 transition-colors">
+                          {task.brief}
+                        </p>
+                        <div className="absolute left-0 bottom-full mb-2 z-50 w-72 p-4 bg-slate-900 text-white text-[12px] rounded-xl shadow-2xl opacity-0 translate-y-2 group-hover/brief:opacity-100 group-hover/brief:translate-y-0 transition-all duration-200 leading-relaxed select-text pointer-events-auto">
+                          <p className="font-black mb-1 text-indigo-400 uppercase tracking-widest border-b border-slate-700 pb-1 flex justify-between items-center">
+                            <span>Full Work Brief</span>
+                            <span className="text-[9px] text-slate-500 font-normal">Selectable Text</span>
+                          </p>
+                          <div className="max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                            {task.brief}
+                          </div>
+                          <div className="absolute left-6 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-slate-900"></div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-4 whitespace-nowrap">
+                        <span className="font-bold text-slate-600">{new Date(task.created_at).toLocaleDateString()}</span>
+                      </td>
+                      <td className="px-3 py-4 whitespace-nowrap">
+                        <span className="font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
                           {new Date(task.deadline).toLocaleDateString()}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-sm font-black text-slate-900">{task.elapsed_hours}h</span>
-                          <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${getStatusColor(task.status)}`}>
-                            {task.status}
-                          </span>
-                        </div>
+                      <td className="px-3 py-4">
+                        <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${getStatusColor(task.status)} whitespace-nowrap`}>
+                          {task.status}
+                        </span>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-4 text-center">
+                        <span className="font-black text-slate-900 whitespace-nowrap">{task.elapsed_hours}h</span>
+                      </td>
+                      <td className="px-3 py-4">
                         <button onClick={() => setEditingTask(task)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                         </button>
                       </td>
                     </tr>
@@ -263,6 +340,11 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                     {db.users.filter(u => u.role === UserRole.ASSIGNEE).map(u => (
                       <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>
                     ))}
+                    {editingTask && !db.users.find(u => u.id === editingTask.assigned_to) && (
+                      <option value={editingTask.assigned_to}>
+                        {db.users.find(u => u.id === editingTask.assigned_to)?.name || 'Current Assignee'}
+                      </option>
+                    )}
                   </select>
                 </div>
 
