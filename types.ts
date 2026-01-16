@@ -55,6 +55,7 @@ export interface Task {
   output: string;
   valuation_id: string;
   deliverable_count: number;
+  concern: string;
   created_at: string;
   updated_at: string;
 }
