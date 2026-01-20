@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, Task, Valuation, TaskStatus } from '../types';
 import { generateTaskCode, supabase } from '../db';
 import { calculateElapsedHours } from '../utils/timeUtils';
+import * as XLSX from 'xlsx';
 
 interface TasksPageProps {
   user: User;
@@ -78,6 +79,41 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
     
     return result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [db.tasks, isManager, user.id, statusFilter, assigneeFilter, searchTerm]);
+
+  const handleExportExcel = () => {
+    const dataToExport = filteredTasks.map(task => {
+      const assignee = db.users.find(u => u.id === task.assigned_to);
+      return {
+        'Task ID': task.task_code,
+        'Concern': task.concern || 'General',
+        'Task Name': task.title,
+        'Responsible': assignee?.name || 'Unassigned',
+        'Deadline': new Date(task.deadline).toLocaleDateString(),
+        'Status': task.status,
+        'Output Proof': task.output || 'Pending',
+        'Elapsed Hours': `${task.elapsed_hours}h`,
+        'Created At': new Date(task.created_at).toLocaleDateString()
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Tasks');
+
+    // Dynamic Filename
+    let assigneeName = 'All_Employees';
+    if (!isManager) {
+      assigneeName = user.name.replace(/\s+/g, '_');
+    } else if (assigneeFilter !== 'ALL') {
+      const selected = db.users.find(u => u.id === assigneeFilter);
+      if (selected) assigneeName = selected.name.replace(/\s+/g, '_');
+    }
+    
+    const dateStr = new Date().toISOString().split('T')[0];
+    const fileName = `${assigneeName}_Tasks_${dateStr}.xlsx`;
+
+    XLSX.writeFile(workbook, fileName);
+  };
 
   const sendWebhook = async (taskData: any, action: 'create' | 'update' | 'delete') => {
     try {
@@ -264,26 +300,41 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
         )}
       </div>
 
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-4">
-        <input 
-          type="text" 
-          placeholder="Search by ID or Title..." 
-          className="w-full px-4 py-3 rounded-xl bg-slate-50 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 border border-slate-100"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-        <select className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="ALL">All Statuses</option>
-          {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        {isManager && (
-          <select className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer" value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
-            <option value="ALL">All Responsible</option>
-            {potentialAssignees.map(u => (
-              <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-            ))}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+        <div className="md:col-span-3">
+          <input 
+            type="text" 
+            placeholder="Search ID or Title..." 
+            className="w-full px-4 py-3 rounded-xl bg-slate-50 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 border border-slate-100 outline-none"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="md:col-span-2">
+          <select className="w-full bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="ALL">All Statuses</option>
+            {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+        </div>
+        {isManager && (
+          <div className="md:col-span-3">
+            <select className="w-full bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer" value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
+              <option value="ALL">All Responsible</option>
+              {potentialAssignees.map(u => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+              ))}
+            </select>
+          </div>
         )}
+        <div className={`${isManager ? 'md:col-span-4' : 'md:col-span-7'} flex justify-end`}>
+          <button 
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl font-black text-sm hover:bg-emerald-600 hover:text-white transition-all active:scale-95"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Download Excel
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
