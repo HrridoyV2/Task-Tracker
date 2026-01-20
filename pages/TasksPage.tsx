@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, Task, Valuation, TaskStatus } from '../types';
 import { generateTaskCode, supabase } from '../db';
@@ -223,6 +222,29 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
     }
   };
 
+  const renderOutputProof = (output: string) => {
+    if (!output) return <span className="text-slate-300 italic text-[10px]">Pending</span>;
+    
+    const isUrl = /^(https?:\/\/|www\.)/i.test(output.trim());
+    
+    if (isUrl) {
+      const href = output.trim().startsWith('http') ? output.trim() : `https://${output.trim()}`;
+      return (
+        <a 
+          href={href} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-indigo-50 text-indigo-600 font-bold hover:bg-indigo-600 hover:text-white transition-all text-[10px]"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          Link
+        </a>
+      );
+    }
+    
+    return <span className="text-slate-600 font-medium text-[10px] line-clamp-1 max-w-[100px]" title={output}>{output}</span>;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -329,19 +351,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                         </span>
                       </td>
                       <td className="px-3 py-4">
-                        {task.output ? (
-                          <a 
-                            href={task.output.startsWith('http') ? task.output : `https://${task.output}`} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-indigo-50 text-indigo-600 font-bold hover:bg-indigo-600 hover:text-white transition-all text-[10px]"
-                          >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                            Link
-                          </a>
-                        ) : (
-                          <span className="text-slate-300 italic text-[10px]">Pending</span>
-                        )}
+                        {renderOutputProof(task.output)}
                       </td>
                       <td className="px-3 py-4 text-center">
                         <span className="font-black text-slate-900 whitespace-nowrap">{task.elapsed_hours}h</span>
