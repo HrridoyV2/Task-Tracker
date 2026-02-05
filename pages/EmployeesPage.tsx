@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, UserRole } from '../types';
 import { supabase } from '../db';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface EmployeesPageProps {
   user: User;
@@ -8,198 +9,164 @@ interface EmployeesPageProps {
   onUpdate: () => void;
 }
 
-const EmployeesPage: React.FC<EmployeesPageProps> = ({ db, onUpdate }) => {
+const EmployeesPage: React.FC<EmployeesPageProps> = ({ db, onUpdate, user }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+
+  const togglePassword = (id: string) => {
+    setVisiblePasswords(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     const formData = new FormData(e.currentTarget);
-    
-    const telegramValue = formData.get('telegram_number') as string;
-    
-    // Create the full object with telegram
     const userData: any = {
       employee_id: formData.get('employee_id') as string,
       name: formData.get('name') as string,
       role: formData.get('role') as string,
-      telegram_number: telegramValue || null,
+      telegram_number: formData.get('telegram_number') as string || null,
       salary: Number(formData.get('salary')),
       is_active: formData.get('is_active') === 'true',
     };
 
     const password = formData.get('password') as string;
-    if (password) {
-      userData.password_hash = password;
-    } else if (!editingUser) {
-      userData.password_hash = 'password';
-    }
+    if (password) userData.password_hash = password;
+    else if (!editingUser) userData.password_hash = 'password';
 
     try {
-      // 1. Try to save with telegram_number
-      let { error } = editingUser 
-        ? await supabase.from('users').update(userData).eq('id', editingUser.id)
-        : await supabase.from('users').insert([{ ...userData, created_at: new Date().toISOString() }]);
-
-      // 2. If it fails specifically because of the missing column (PGRST204)
-      if (error && (error.code === 'PGRST204' || error.message?.includes('telegram_number'))) {
-        console.warn("Retrying save without telegram_number due to missing column in DB.");
-        
-        // Remove the problematic field
-        const { telegram_number, ...safeUserData } = userData;
-        
-        const retryResult = editingUser
-          ? await supabase.from('users').update(safeUserData).eq('id', editingUser.id)
-          : await supabase.from('users').insert([{ ...safeUserData, created_at: new Date().toISOString() }]);
-        
-        if (retryResult.error) throw retryResult.error;
-        
-        alert("Success, but Telegram was NOT saved. \n\nReason: The database column 'telegram_number' is missing or not synced yet. \n\nAction: Go to Supabase SQL Editor and run: \nALTER TABLE users ADD COLUMN telegram_number TEXT;");
-      } else if (error) {
-        throw error;
-      }
-
+      if (editingUser) await supabase.from('users').update(userData).eq('id', editingUser.id);
+      else await supabase.from('users').insert([{ ...userData, created_at: new Date().toISOString() }]);
       setIsModalOpen(false);
       setEditingUser(null);
       onUpdate();
     } catch (err: any) {
-      console.error('Employee Save Error:', err);
-      alert(err.message || 'Failed to save employee record');
+      alert(err.message || 'Error saving employee');
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Workspace Directory</h1>
-          <p className="text-slate-500">Manage all Manager and Assignee profiles</p>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Team Directory</h1>
+          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Personnel & Access Metadata</p>
         </div>
-        <button 
-          onClick={() => { setEditingUser(null); setIsModalOpen(true); }}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all active:scale-95"
-        >
+        <button onClick={() => { setEditingUser(null); setIsModalOpen(true); }} className="bg-slate-900 dark:bg-indigo-600 hover:bg-black dark:hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-black flex items-center gap-2 shadow-xl transition-all active:scale-95">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-          New Account
+          Register Talent
         </button>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 border-b border-slate-100">
-            <tr>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Emp ID</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Full Name</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Role</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Salary</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {db.users.map((emp) => (
-              <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
-                <td className="px-6 py-4 font-bold text-indigo-600">{emp.employee_id}</td>
-                <td className="px-6 py-4">
-                  <div className="flex flex-col">
-                    <span className="font-medium text-slate-900">{emp.name}</span>
-                    <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
-                      <svg className="w-3 h-3 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.11.02-1.93 1.23-5.46 3.62-.51.35-.98.52-1.4.51-.46-.01-1.35-.26-2.01-.48-.81-.27-1.45-.42-1.39-.89.03-.24.36-.49.99-.74 3.89-1.69 6.48-2.8 7.77-3.32 3.7-1.48 4.47-1.74 4.97-1.75.11 0 .36.03.52.16.14.11.18.26.19.38.01.07.01.2-.01.35z"/></svg>
-                      {emp.telegram_number || 'No Telegram'}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${emp.role === UserRole.MANAGER ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                    {emp.role}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-700">৳ {emp.salary.toLocaleString()}</td>
-                <td className="px-6 py-4">
-                  <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${emp.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                    {emp.is_active ? 'Active' : 'Inactive'}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <button onClick={() => setEditingUser(emp)} className="text-slate-400 hover:text-indigo-600 p-2 rounded-lg transition-colors">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                  </button>
-                </td>
+      <div className="bg-white dark:bg-slate-900 rounded-[32px] shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
+              <tr>
+                <th className="px-8 py-6 text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Entity</th>
+                <th className="px-8 py-6 text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Access Key</th>
+                <th className="px-8 py-6 text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Role</th>
+                <th className="px-8 py-6 text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest text-center">Compensation</th>
+                <th className="px-8 py-6 text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest text-right">Settings</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {db.users.map((emp) => (
+                <tr key={emp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors group">
+                  <td className="px-8 py-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-11 h-11 bg-indigo-600 text-white rounded-[14px] flex items-center justify-center font-black text-base shadow-lg shadow-indigo-600/10">
+                        {emp.name.charAt(0)}
+                      </div>
+                      <div>
+                        <span className="block font-black text-slate-900 dark:text-slate-100 text-sm leading-tight">{emp.name}</span>
+                        <span className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">{emp.employee_id}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-8 py-6">
+                    <div className="flex items-center gap-3 cursor-pointer group/pass" onClick={() => togglePassword(emp.id)}>
+                      <div className="bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl font-mono text-[11px] text-slate-600 dark:text-slate-400 min-w-[130px] flex justify-between items-center transition-all group-hover/pass:bg-slate-200 dark:group-hover/pass:bg-slate-700">
+                        {visiblePasswords[emp.id] ? emp.password_hash : '••••••••••••'}
+                        <svg className="w-3.5 h-3.5 text-slate-400 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-8 py-6">
+                    <span className={`inline-block px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${emp.role === UserRole.MANAGER ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>
+                      {emp.role}
+                    </span>
+                  </td>
+                  <td className="px-8 py-6 text-center font-black text-slate-700 dark:text-slate-300 text-sm">৳ {emp.salary.toLocaleString()}</td>
+                  <td className="px-8 py-6 text-right">
+                    <button onClick={() => setEditingUser(emp)} className="p-2.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all shadow-sm opacity-0 group-hover:opacity-100">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {(isModalOpen || editingUser) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
-            <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-              <h3 className="text-xl font-bold text-slate-900">{editingUser ? 'Update Profile' : 'New Account Credentials'}</h3>
-              <button onClick={() => { setIsModalOpen(false); setEditingUser(null); }} className="text-slate-400 hover:text-slate-600 p-2 rounded-xl">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-8 space-y-5">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-1">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Access Role</label>
-                  <select name="role" defaultValue={editingUser?.role || UserRole.ASSIGNEE} required className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500">
-                    <option value={UserRole.ASSIGNEE}>Assignee</option>
-                    <option value={UserRole.MANAGER}>Manager</option>
-                  </select>
+      <AnimatePresence>
+        {(isModalOpen || editingUser) && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setIsModalOpen(false); setEditingUser(null); }} className="absolute inset-0 bg-slate-900/80 backdrop-blur-md" />
+            <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800">
+              <div className="px-10 py-8 border-b border-slate-50 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 flex justify-between items-center">
+                <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">{editingUser ? 'Account Modulation' : 'Personnel Inception'}</h3>
+                <button onClick={() => { setIsModalOpen(false); setEditingUser(null); }} className="text-slate-400 hover:text-rose-500 p-2"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+              </div>
+              <form onSubmit={handleSubmit} className="p-10 space-y-6">
+                <div className="grid grid-cols-2 gap-5">
+                  <FormSection label="Role">
+                    <select name="role" defaultValue={editingUser?.role || UserRole.ASSIGNEE} className="w-full px-4 py-3.5 rounded-2xl border-none bg-slate-50 dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500">
+                      <option value={UserRole.ASSIGNEE}>Assignee</option>
+                      <option value={UserRole.MANAGER}>Manager</option>
+                    </select>
+                  </FormSection>
+                  <FormSection label="Status">
+                    <select name="is_active" defaultValue={editingUser?.is_active?.toString() || 'true'} className="w-full px-4 py-3.5 rounded-2xl border-none bg-slate-50 dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500">
+                      <option value="true">Operational</option>
+                      <option value="false">Deactivated</option>
+                    </select>
+                  </FormSection>
                 </div>
-                <div className="col-span-1">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Account Status</label>
-                  <select name="is_active" defaultValue={editingUser?.is_active?.toString() || 'true'} className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500">
-                    <option value="true">Authorized</option>
-                    <option value="false">Deactivated</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Employee Identifier</label>
-                <input name="employee_id" defaultValue={editingUser?.employee_id} required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder="MGR-00X or EMP-00X" />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Display Name</label>
-                  <input name="name" defaultValue={editingUser?.name} required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder="Full Name" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Telegram Number</label>
-                  <input name="telegram_number" type="tel" pattern="[0-9]*" defaultValue={editingUser?.telegram_number} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder="8801XXXXXXXXX" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Access Token (Password)</label>
-                <input name="password" type="password" required={!editingUser} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" placeholder={editingUser ? "Leave blank to keep same" : "Set secure password"} />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Monthly Remuneration (৳)</label>
-                <input name="salary" type="number" defaultValue={editingUser?.salary} required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-900 font-medium" />
-              </div>
-              
-              <button 
-                type="submit" 
-                disabled={isSaving}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center"
-              >
-                {isSaving ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (editingUser ? 'Update Records' : 'Commit Account')}
-              </button>
-            </form>
+                <FormSection label="Employee Identifier">
+                  <input name="employee_id" defaultValue={editingUser?.employee_id} required className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-indigo-500 font-black text-slate-900 dark:text-white outline-none" placeholder="EMP-XXX" />
+                </FormSection>
+                <FormSection label="Legal Name">
+                  <input name="name" defaultValue={editingUser?.name} required className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-indigo-500 font-black text-slate-900 dark:text-white outline-none" placeholder="Hridoy Chandra Das" />
+                </FormSection>
+                <FormSection label="Access Credential">
+                  <input name="password" defaultValue={editingUser?.password_hash} className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-indigo-500 font-black text-slate-900 dark:text-white outline-none" placeholder="Set security key" />
+                </FormSection>
+                <FormSection label="Monthly Stipend (৳)">
+                  <input name="salary" type="number" defaultValue={editingUser?.salary} required className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-indigo-500 font-black text-slate-900 dark:text-white outline-none" />
+                </FormSection>
+                <button type="submit" disabled={isSaving} className="w-full bg-slate-900 dark:bg-indigo-600 hover:bg-black dark:hover:bg-indigo-700 text-white font-black py-5 rounded-[20px] shadow-2xl shadow-indigo-500/10 transition-all active:scale-[0.98] disabled:opacity-50 uppercase tracking-widest text-xs">
+                  {isSaving ? 'Synchronizing...' : (editingUser ? 'Update Profile' : 'Authorize Identity')}
+                </button>
+              </form>
+            </motion.div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 };
+
+const FormSection: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="space-y-2">
+    <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block ml-1">{label}</label>
+    {children}
+  </div>
+);
 
 export default EmployeesPage;

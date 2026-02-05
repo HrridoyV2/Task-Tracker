@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, Task, Valuation } from './types';
 import { supabase } from './db';
@@ -17,6 +16,9 @@ const App: React.FC = () => {
   const [db, setDb] = useState<{ users: User[]; tasks: Task[]; valuations: Valuation[] }>({ users: [], tasks: [], valuations: [] });
   const [loading, setLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
+  });
 
   const fetchData = async () => {
     setLoading(true);
@@ -42,6 +44,15 @@ const App: React.FC = () => {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    document.documentElement.className = theme;
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+  };
+
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('current_user', JSON.stringify(user));
@@ -59,10 +70,10 @@ const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 transition-colors">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-500 font-medium">Connecting to Workspace...</p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium">Connecting to Workspace...</p>
         </div>
       </div>
     );
@@ -79,10 +90,10 @@ const App: React.FC = () => {
       case 'tasks':
         return <TasksPage user={currentUser} db={db} onUpdate={fetchData} />;
       case 'employees':
-        if (currentUser.role !== UserRole.MANAGER) return <div>Access Denied</div>;
+        if (currentUser.role !== UserRole.MANAGER) return <div className="dark:text-white p-8">Access Denied</div>;
         return <EmployeesPage user={currentUser} db={db} onUpdate={fetchData} />;
       case 'valuations':
-        if (currentUser.role !== UserRole.MANAGER) return <div>Access Denied</div>;
+        if (currentUser.role !== UserRole.MANAGER) return <div className="dark:text-white p-8">Access Denied</div>;
         return <ValuationsPage user={currentUser} db={db} onUpdate={fetchData} />;
       case 'settings':
         return <SettingsPage user={currentUser} users={db.users} onUpdate={fetchData} />;
@@ -92,7 +103,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors">
       {/* Desktop Sidebar */}
       <Sidebar 
         role={currentUser.role} 
@@ -125,9 +136,13 @@ const App: React.FC = () => {
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header 
           user={currentUser} 
+          theme={theme}
+          onThemeToggle={toggleTheme}
+          onLogout={handleLogout}
+          onPageChange={handlePageChange}
           onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
         />
-        <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
           {renderPage()}
         </main>
       </div>

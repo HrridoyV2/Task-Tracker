@@ -1,4 +1,3 @@
-
 export enum UserRole {
   MANAGER = 'MANAGER',
   ASSIGNEE = 'ASSIGNEE'
@@ -15,6 +14,13 @@ export enum TaskStatus {
   FAILED = 'Failed',
   FIRST_ATTEMPT = '1st attempt',
   HOLD = 'Hold'
+}
+
+export enum TaskPriority {
+  URGENT = 'Urgent',
+  HIGH = 'High',
+  NORMAL = 'Normal',
+  LOW = 'Low'
 }
 
 export interface User {
@@ -48,6 +54,8 @@ export interface Task {
   assigned_by: string;
   assigned_to: string;
   status: TaskStatus;
+  priority?: TaskPriority;
+  tags?: string[];
   deadline: string;
   task_start_time: string;
   task_end_time: string | null;
