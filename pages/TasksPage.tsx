@@ -36,7 +36,6 @@ const getPriorityIcon = (priority?: TaskPriority) => {
   }
 };
 
-const WEBHOOK_URL = 'https://n8n.mutho.tech/webhook/wecon-website';
 const CONCERN_OPTIONS = ['Wecon', 'P2P Furniture', 'ENCL', 'Management', 'Health Care', 'EC', 'D. Studio'];
 
 const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
@@ -49,7 +48,6 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
   const [assigneeFilter, setAssigneeFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Refs for auto-filling from AI
   const titleRef = useRef<HTMLInputElement>(null);
   const briefRef = useRef<HTMLTextAreaElement>(null);
   const tagsRef = useRef<HTMLInputElement>(null);
@@ -83,19 +81,22 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
 
     setIsAILoading(true);
     try {
+      if (!(await window.aistudio.hasSelectedApiKey())) {
+        await window.aistudio.openSelectKey();
+      }
+
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Generate a professional, detailed project briefing and relevant tags for a task titled: "${title}". 
-                  The response should be structured to help an employee understand exactly what needs to be done.`,
+        contents: [{ parts: [{ text: `Generate a professional, detailed project briefing and relevant tags for a task titled: "${title}".` }] }],
         config: {
-          systemInstruction: "You are an expert project manager. Provide clear, actionable task descriptions. Respond only in JSON format.",
+          systemInstruction: "You are an expert project manager. Provide clear, actionable task descriptions. Response must be JSON only.",
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              brief: { type: Type.STRING, description: "Detailed multi-line task description" },
-              tags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3-5 relevant category tags" }
+              brief: { type: Type.STRING },
+              tags: { type: Type.ARRAY, items: { type: Type.STRING } }
             },
             required: ["brief", "tags"]
           }
@@ -103,13 +104,16 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
       });
 
       const result = JSON.parse(response.text || '{}');
-      
       if (briefRef.current) briefRef.current.value = result.brief || '';
       if (tagsRef.current) tagsRef.current.value = (result.tags || []).join(', ');
       
-    } catch (err) {
-      console.error("AI Generation Error:", err);
-      alert("AI was unable to generate content. Please try again or fill manually.");
+    } catch (err: any) {
+      console.error("AI Copilot Error:", err);
+      if (err.message?.includes('Requested entity was not found')) {
+        await window.aistudio.openSelectKey();
+      } else {
+        alert("AI System connection timeout. Please ensure you have an API key selected.");
+      }
     } finally {
       setIsAILoading(false);
     }
@@ -170,52 +174,53 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Project Board</h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Efficient deliverable management</p>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Project Matrix</h1>
+          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Lifecycle monitoring & assignment control</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={handleExportExcel} className="hidden md:flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <button onClick={handleExportExcel} className="hidden md:flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-xs uppercase tracking-widest text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
             Export
           </button>
           {isManager && (
-            <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-indigo-200 transition-all active:scale-95">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-              Add Task
+            <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-7 py-3 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center gap-2 shadow-2xl shadow-indigo-500/30 transition-all active:scale-95">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4"/></svg>
+              Initiate Task
             </button>
           )}
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-3">
-        <div className="flex-1 min-w-[240px] relative">
-          <svg className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input type="text" placeholder="Filter by ID, Title..." className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-[28px] shadow-sm border border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4">
+        <div className="flex-1 min-w-[300px] relative">
+          <svg className="w-5 h-5 text-slate-400 absolute left-5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input type="text" placeholder="Search by Project ID, Title or Concern..." className="w-full pl-12 pr-5 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 outline-none transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
-        <select className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2.5 text-slate-600 dark:text-slate-300 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer outline-none min-w-[140px]" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option value="ALL">All Status</option>
-          {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        {isManager && (
-          <select className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2.5 text-slate-600 dark:text-slate-300 font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer outline-none min-w-[140px]" value={assigneeFilter} onChange={e => setAssigneeFilter(e.target.value)}>
-            <option value="ALL">Everyone</option>
-            {potentialAssignees.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+        <div className="flex gap-2">
+          <select className="bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 cursor-pointer outline-none shadow-sm" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="ALL">Status: All</option>
+            {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-        )}
+          {isManager && (
+            <select className="bg-slate-50 dark:bg-slate-800 border-none rounded-2xl px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 cursor-pointer outline-none shadow-sm" value={assigneeFilter} onChange={e => setAssigneeFilter(e.target.value)}>
+              <option value="ALL">Team: Everyone</option>
+              {potentialAssignees.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-[32px] shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-[40px] shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left table-fixed">
             <thead className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
               <tr>
-                <th className="w-[110px] px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">ID</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Task Details</th>
-                <th className="w-[140px] px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
-                <th className="w-[120px] px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Priority</th>
-                <th className="w-[180px] px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Assignee</th>
-                <th className="w-[140px] px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Deadline</th>
-                <th className="w-[100px] px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                <th className="w-[120px] px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">P-Code</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Project Specifications</th>
+                <th className="w-[150px] px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center">Lifecycle</th>
+                <th className="w-[140px] px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center">Responsible</th>
+                <th className="w-[150px] px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Threshold</th>
+                <th className="w-[100px] px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -223,62 +228,56 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                 const assignee = db.users.find(u => u.id === task.assigned_to);
                 return (
                   <motion.tr 
-                    initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.02 }}
+                    initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.03 }}
                     key={task.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-all cursor-pointer group"
                     onClick={() => setEditingTask(task)}
                   >
-                    <td className="px-6 py-5 align-top">
-                      <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">{task.task_code}</span>
-                    </td>
-                    <td className="px-6 py-5 align-top">
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">{task.concern}</span>
-                          <span className="text-slate-200 dark:text-slate-700">/</span>
-                          <span className="text-sm font-black text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">{task.title}</span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 max-w-[320px] font-medium">{task.brief}</p>
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {task.tags?.map(tag => <span key={tag} className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[9px] font-black text-slate-500 dark:text-slate-400">#{tag}</span>)}
+                    <td className="px-8 py-7 align-top">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 tracking-tighter">{task.task_code}</span>
+                        <div className="flex items-center gap-1">
+                          {getPriorityIcon(task.priority)}
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-5 align-top text-center">
-                      <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getStatusStyles(task.status)} shadow-sm`}>
+                    <td className="px-8 py-7 align-top">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">{task.concern}</span>
+                          <span className="text-sm font-black text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 transition-colors leading-tight">{task.title}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 max-w-[350px] font-medium leading-relaxed">{task.brief}</p>
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {task.tags?.map(tag => <span key={tag} className="px-2 py-0.5 rounded-lg bg-indigo-50/50 dark:bg-indigo-900/20 text-[9px] font-black text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800/30">#{tag}</span>)}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-7 align-top text-center">
+                      <span className={`inline-block px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${getStatusStyles(task.status)} shadow-sm`}>
                         {task.status}
                       </span>
                     </td>
-                    <td className="px-6 py-5 align-top text-center">
-                      <div className="flex justify-center items-center gap-1.5 text-xs font-black text-slate-600 dark:text-slate-400">
-                        {getPriorityIcon(task.priority)}
-                        <span className="uppercase tracking-tighter">{task.priority || 'Normal'}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5 align-top">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center text-[11px] font-black border border-indigo-200 dark:border-indigo-800/50 shadow-sm">
+                    <td className="px-8 py-7 align-top">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-9 h-9 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center text-xs font-black border border-indigo-200 dark:border-indigo-800/50">
                           {assignee?.name.charAt(0)}
                         </div>
-                        <span className="text-xs font-black text-slate-700 dark:text-slate-300 truncate">{assignee?.name || 'Unassigned'}</span>
+                        <span className="text-[10px] font-black text-slate-600 dark:text-slate-400 uppercase truncate w-full text-center">{assignee?.name.split(' ')[0] || 'Pending'}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-5 align-top">
-                      <span className="text-xs font-black text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 px-2.5 py-1 rounded-lg border border-rose-100 dark:border-rose-900/30">
-                        {new Date(task.deadline).toLocaleDateString()}
-                      </span>
+                    <td className="px-8 py-7 align-top">
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-black text-rose-500 dark:text-rose-400 tabular-nums">
+                          {new Date(task.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                           <div className="bg-rose-400 h-full w-2/3"></div>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-6 py-5 align-top text-right">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={(e) => { e.stopPropagation(); setEditingTask(task); }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all shadow-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg></button>
-                        {isManager && (
-                          <button onClick={async (e) => { 
-                            e.stopPropagation();
-                            if(confirm('Archive this task?')) {
-                              await supabase.from('tasks').delete().eq('id', task.id);
-                              onUpdate();
-                            }
-                          }} className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all shadow-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
-                        )}
+                    <td className="px-8 py-7 align-top text-right">
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+                        <button onClick={(e) => { e.stopPropagation(); setEditingTask(task); }} className="p-2.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-xl transition-all shadow-md"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
                       </div>
                     </td>
                   </motion.tr>
@@ -292,90 +291,85 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
       <AnimatePresence>
         {(isModalOpen || editingTask) && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setIsModalOpen(false); setEditingTask(null); }} className="absolute inset-0 bg-slate-900/80 backdrop-blur-md" />
-            <motion.div initial={{ opacity: 0, scale: 0.98, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98, y: 10 }} className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-[40px] shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] border border-slate-200 dark:border-slate-800">
-              {/* Sidebar Settings Panel */}
-              <div className="w-full md:w-80 bg-slate-50 dark:bg-slate-800/40 p-8 border-r border-slate-100 dark:border-slate-800 space-y-8 overflow-y-auto custom-scrollbar">
-                <MetadataSection label="Status">
-                  <select name="status" form="task-form" defaultValue={editingTask?.status || TaskStatus.ASSIGN} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setIsModalOpen(false); setEditingTask(null); }} className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 30 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 30 }} className="relative w-full max-w-5xl bg-white dark:bg-slate-900 rounded-[48px] shadow-3xl overflow-hidden flex flex-col md:flex-row max-h-[92vh] border border-white/10">
+              <div className="w-full md:w-80 bg-slate-50 dark:bg-slate-800/50 p-10 border-r border-slate-100 dark:border-slate-800/80 space-y-10 overflow-y-auto custom-scrollbar">
+                <MetadataSection label="Pipeline Status">
+                  <select name="status" form="task-form" defaultValue={editingTask?.status || TaskStatus.ASSIGN} className="w-full px-5 py-4 rounded-2xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 appearance-none">
                     {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </MetadataSection>
-                <MetadataSection label="Responsible">
-                  <select name="assigned_to" form="task-form" defaultValue={editingTask?.assigned_to || selectedAssigneeInForm} disabled={!isManager} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-40">
+                <MetadataSection label="Responsible Lead">
+                  <select name="assigned_to" form="task-form" defaultValue={editingTask?.assigned_to || selectedAssigneeInForm} disabled={!isManager} className="w-full px-5 py-4 rounded-2xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-40 appearance-none">
                     {potentialAssignees.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 </MetadataSection>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-5">
                   <MetadataSection label="Priority">
-                    <select name="priority" form="task-form" defaultValue={editingTask?.priority || TaskPriority.NORMAL} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    <select name="priority" form="task-form" defaultValue={editingTask?.priority || TaskPriority.NORMAL} className="w-full px-5 py-4 rounded-2xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 appearance-none">
                       {Object.values(TaskPriority).map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
                   </MetadataSection>
                   <MetadataSection label="Concern">
-                    <select name="concern" form="task-form" defaultValue={editingTask?.concern || 'Wecon'} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    <select name="concern" form="task-form" defaultValue={editingTask?.concern || 'Wecon'} className="w-full px-5 py-4 rounded-2xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 appearance-none">
                       {CONCERN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </MetadataSection>
                 </div>
-                <MetadataSection label="Target Date">
-                  <input type="date" name="deadline" form="task-form" defaultValue={editingTask?.deadline ? new Date(editingTask.deadline).toISOString().split('T')[0] : ''} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                <MetadataSection label="Deadline Threshold">
+                  <input type="date" name="deadline" form="task-form" defaultValue={editingTask?.deadline ? new Date(editingTask.deadline).toISOString().split('T')[0] : ''} className="w-full px-5 py-4 rounded-2xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                 </MetadataSection>
-                <MetadataSection label="Categorization (Tags)">
-                  <input ref={tagsRef} type="text" name="tags" form="task-form" defaultValue={editingTask?.tags?.join(', ')} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Urgent, v2, Design" />
+                <MetadataSection label="Categorization">
+                  <input ref={tagsRef} type="text" name="tags" form="task-form" defaultValue={editingTask?.tags?.join(', ')} className="w-full px-5 py-4 rounded-2xl border-none bg-white dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Separate with commas" />
                 </MetadataSection>
               </div>
 
-              {/* Main Task Editor */}
               <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-slate-900">
-                <div className="px-10 py-6 flex justify-between items-center border-b border-slate-50 dark:border-slate-800">
-                  <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg tracking-widest">{editingTask?.task_code || 'NEW-TASK'}</span>
-                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">{editingTask ? 'Task Specification' : 'Project Initiation'}</h2>
+                <div className="px-12 py-8 flex justify-between items-center border-b border-slate-50 dark:border-slate-800">
+                  <div className="flex items-center gap-5">
+                    <div className="flex flex-col">
+                       <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 tracking-[0.3em] uppercase">{editingTask?.task_code || 'Project Inception'}</span>
+                       <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight uppercase">{editingTask ? 'Specification Review' : 'Task Protocol'}</h2>
+                    </div>
                   </div>
-                  <button onClick={() => { setIsModalOpen(false); setEditingTask(null); }} className="text-slate-400 hover:text-rose-500 p-2 rounded-xl transition-colors">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                  <button onClick={() => { setIsModalOpen(false); setEditingTask(null); }} className="text-slate-400 hover:text-rose-500 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-all">
+                    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
                   </button>
                 </div>
-                <form id="task-form" onSubmit={handleSave} className="flex-1 overflow-y-auto p-10 space-y-10 custom-scrollbar">
-                  <div className="space-y-3 relative group">
+                <form id="task-form" onSubmit={handleSave} className="flex-1 overflow-y-auto p-12 space-y-12 custom-scrollbar">
+                  <div className="space-y-4 relative group">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Headline</label>
+                      <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.25em] ml-2">Project Headline</label>
                       <button 
                         type="button"
                         onClick={handleAIWrite}
                         disabled={isAILoading}
-                        className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 transition-colors uppercase tracking-widest disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-[11px] font-black text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all rounded-xl uppercase tracking-widest disabled:opacity-50"
                       >
                         {isAILoading ? (
-                          <>
-                            <div className="w-2.5 h-2.5 border-2 border-indigo-600 dark:border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
-                            Thinking...
-                          </>
+                          <div className="w-3.5 h-3.5 border-2 border-indigo-600 dark:border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
                         ) : (
-                          <>
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                            Write with AI
-                          </>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         )}
+                        Generate Protocol
                       </button>
                     </div>
-                    <input ref={titleRef} name="title" required defaultValue={editingTask?.title} className="w-full text-3xl font-black text-slate-900 dark:text-white border-none bg-slate-50/50 dark:bg-slate-800/30 p-5 rounded-3xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder-slate-200 dark:placeholder-slate-800" placeholder="Define the objective..." />
+                    <input ref={titleRef} name="title" required defaultValue={editingTask?.title} className="w-full text-4xl font-black text-slate-900 dark:text-white border-none bg-slate-50/50 dark:bg-slate-800/40 p-8 rounded-[32px] focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all placeholder-slate-200 dark:placeholder-slate-800 tracking-tighter" placeholder="Summarize objective..." />
                   </div>
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Briefing</label>
-                    <textarea ref={briefRef} name="brief" rows={8} required defaultValue={editingTask?.brief} className="w-full p-5 rounded-3xl bg-slate-50/50 dark:bg-slate-800/30 border-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700 dark:text-slate-300 outline-none resize-none placeholder-slate-200 dark:placeholder-slate-800" placeholder="Instructions for execution..."></textarea>
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.25em] ml-2">Operational Briefing</label>
+                    <textarea ref={briefRef} name="brief" rows={10} required defaultValue={editingTask?.brief} className="w-full p-8 rounded-[32px] bg-slate-50/50 dark:bg-slate-800/40 border-none focus:ring-4 focus:ring-indigo-500/10 font-medium text-slate-700 dark:text-slate-300 outline-none resize-none placeholder-slate-200 dark:placeholder-slate-800 text-lg leading-relaxed" placeholder="Detailed execution instructions..."></textarea>
                   </div>
                   {editingTask && (
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Deliverable Proof</label>
-                      <input name="output" defaultValue={editingTask?.output} className="w-full p-5 rounded-3xl bg-indigo-50/20 dark:bg-indigo-900/10 border-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-700 dark:text-indigo-400 outline-none" placeholder="URL or Proof Location" />
+                    <div className="space-y-4">
+                      <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.25em] ml-2">Verification Proof (Output URL)</label>
+                      <input name="output" defaultValue={editingTask?.output} className="w-full p-8 rounded-[32px] bg-emerald-50/20 dark:bg-emerald-900/10 border-none focus:ring-4 focus:ring-emerald-500/10 font-black text-emerald-700 dark:text-emerald-400 outline-none tracking-tight" placeholder="https://deliverable.url" />
                     </div>
                   )}
                 </form>
-                <div className="px-10 py-8 border-t border-slate-50 dark:border-slate-800 flex gap-4">
-                  <button type="submit" form="task-form" disabled={isSaving} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-200 dark:shadow-none transition-all active:scale-[0.99] disabled:opacity-50 uppercase tracking-widest text-xs">
-                    {isSaving ? 'Processing...' : (editingTask ? 'Commit Updates' : 'Launch Project')}
+                <div className="px-12 py-10 border-t border-slate-50 dark:border-slate-800/50 flex gap-6 bg-slate-50/20 dark:bg-slate-800/10">
+                  <button type="submit" form="task-form" disabled={isSaving} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-6 rounded-[32px] shadow-2xl shadow-indigo-500/20 transition-all active:scale-[0.99] disabled:opacity-50 uppercase tracking-[0.3em] text-[11px]">
+                    {isSaving ? 'Synchronizing...' : (editingTask ? 'Commit Protocol Updates' : 'Authorize Project Initiation')}
                   </button>
                 </div>
               </div>
@@ -389,7 +383,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
 
 const MetadataSection: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div>
-    <h3 className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3">{label}</h3>
+    <h3 className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em] mb-4 ml-1">{label}</h3>
     {children}
   </div>
 );
