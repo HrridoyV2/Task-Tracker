@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { User, UserRole, Task, Valuation, TaskStatus, FinancialSummary } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { GoogleGenAI } from '@google/genai';
 
 interface DashboardProps {
   user: User;
@@ -10,6 +11,8 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ user, db }) => {
+  const [aiSummary, setAiSummary] = useState<string>('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const isManager = user.role === UserRole.MANAGER;
   
   const filteredTasks = useMemo(() => {
@@ -26,6 +29,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, db }) => {
       total: filteredTasks.length
     };
   }, [filteredTasks]);
+
+  const handleGetAiInsights = async () => {
+    setIsAiLoading(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const prompt = `As a project performance analyst, summarize the following team status: 
+      Total Tasks: ${stats.total}, 
+      Done: ${stats[TaskStatus.DONE]}, 
+      In Progress: ${stats[TaskStatus.IN_PROGRESS]}, 
+      Under Review: ${stats[TaskStatus.UNDER_REVIEW]}, 
+      Failed: ${stats[TaskStatus.FAILED]}. 
+      Provide 3 bullet points on efficiency and what to focus on. Keep it professional and short.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt
+      });
+      setAiSummary(response.text || 'Unable to generate insights at this time.');
+    } catch (err) {
+      setAiSummary('Failed to connect to AI analyst.');
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
 
   const financialSummary = useMemo((): FinancialSummary => {
     const completed = filteredTasks.filter(t => t.status === TaskStatus.DONE);
@@ -58,10 +85,48 @@ const Dashboard: React.FC<DashboardProps> = ({ user, db }) => {
 
   return (
     <div className="space-y-8">
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Work Overview</h1>
-        <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Lifecycle analytics for {user.name}.</p>
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Work Overview</h1>
+          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Lifecycle analytics for {user.name}.</p>
+        </div>
+        <button 
+          onClick={handleGetAiInsights}
+          disabled={isAiLoading}
+          className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50"
+        >
+          {isAiLoading ? (
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          )}
+          Get AI Insights
+        </button>
       </motion.div>
+
+      <AnimatePresence>
+        {aiSummary && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }} 
+            animate={{ opacity: 1, height: 'auto' }} 
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/50 p-6 rounded-[24px] relative overflow-hidden group"
+          >
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+               <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </div>
+            <div className="flex justify-between items-start mb-2">
+              <h4 className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Team Performance Summary</h4>
+              <button onClick={() => setAiSummary('')} className="text-indigo-400 hover:text-indigo-600 p-1 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="text-sm text-slate-700 dark:text-slate-200 whitespace-pre-line leading-relaxed font-medium">
+              {aiSummary}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Total Assigned" value={stats.total} icon={<svg className="w-6 h-6 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2"/></svg>} />

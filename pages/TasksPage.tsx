@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, UserRole, Task, Valuation, TaskStatus, TaskPriority } from '../types';
 import { generateTaskCode, supabase } from '../db';
 import { calculateElapsedHours } from '../utils/timeUtils';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'framer-motion';
+import { GoogleGenAI, Type } from '@google/genai';
 
 interface TasksPageProps {
   user: User;
@@ -43,9 +44,15 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedAssigneeInForm, setSelectedAssigneeInForm] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isAILoading, setIsAILoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [assigneeFilter, setAssigneeFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Refs for auto-filling from AI
+  const titleRef = useRef<HTMLInputElement>(null);
+  const briefRef = useRef<HTMLTextAreaElement>(null);
+  const tagsRef = useRef<HTMLInputElement>(null);
 
   const isManager = user.role === UserRole.MANAGER;
   const potentialAssignees = useMemo(() => db.users.filter(u => u.is_active && u.id !== '00000000-0000-0000-0000-000000000000'), [db.users]);
@@ -66,6 +73,47 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
     }
     return result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [db.tasks, isManager, user.id, statusFilter, assigneeFilter, searchTerm]);
+
+  const handleAIWrite = async () => {
+    const title = titleRef.current?.value;
+    if (!title) {
+      alert("Please enter a task title first so the AI knows what to write about.");
+      return;
+    }
+
+    setIsAILoading(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Generate a professional, detailed project briefing and relevant tags for a task titled: "${title}". 
+                  The response should be structured to help an employee understand exactly what needs to be done.`,
+        config: {
+          systemInstruction: "You are an expert project manager. Provide clear, actionable task descriptions. Respond only in JSON format.",
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              brief: { type: Type.STRING, description: "Detailed multi-line task description" },
+              tags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3-5 relevant category tags" }
+            },
+            required: ["brief", "tags"]
+          }
+        }
+      });
+
+      const result = JSON.parse(response.text || '{}');
+      
+      if (briefRef.current) briefRef.current.value = result.brief || '';
+      if (tagsRef.current) tagsRef.current.value = (result.tags || []).join(', ');
+      
+    } catch (err) {
+      console.error("AI Generation Error:", err);
+      alert("AI was unable to generate content. Please try again or fill manually.");
+    } finally {
+      setIsAILoading(false);
+    }
+  };
 
   const handleExportExcel = () => {
     const dataToExport = filteredTasks.map(task => {
@@ -274,7 +322,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                   <input type="date" name="deadline" form="task-form" defaultValue={editingTask?.deadline ? new Date(editingTask.deadline).toISOString().split('T')[0] : ''} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-black text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                 </MetadataSection>
                 <MetadataSection label="Categorization (Tags)">
-                  <input type="text" name="tags" form="task-form" defaultValue={editingTask?.tags?.join(', ')} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Urgent, v2, Design" />
+                  <input ref={tagsRef} type="text" name="tags" form="task-form" defaultValue={editingTask?.tags?.join(', ')} className="w-full px-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Urgent, v2, Design" />
                 </MetadataSection>
               </div>
 
@@ -290,13 +338,33 @@ const TasksPage: React.FC<TasksPageProps> = ({ user, db, onUpdate }) => {
                   </button>
                 </div>
                 <form id="task-form" onSubmit={handleSave} className="flex-1 overflow-y-auto p-10 space-y-10 custom-scrollbar">
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Headline</label>
-                    <input name="title" required defaultValue={editingTask?.title} className="w-full text-3xl font-black text-slate-900 dark:text-white border-none bg-slate-50/50 dark:bg-slate-800/30 p-5 rounded-3xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder-slate-200 dark:placeholder-slate-800" placeholder="Define the objective..." />
+                  <div className="space-y-3 relative group">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Headline</label>
+                      <button 
+                        type="button"
+                        onClick={handleAIWrite}
+                        disabled={isAILoading}
+                        className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 transition-colors uppercase tracking-widest disabled:opacity-50"
+                      >
+                        {isAILoading ? (
+                          <>
+                            <div className="w-2.5 h-2.5 border-2 border-indigo-600 dark:border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+                            Thinking...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            Write with AI
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <input ref={titleRef} name="title" required defaultValue={editingTask?.title} className="w-full text-3xl font-black text-slate-900 dark:text-white border-none bg-slate-50/50 dark:bg-slate-800/30 p-5 rounded-3xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder-slate-200 dark:placeholder-slate-800" placeholder="Define the objective..." />
                   </div>
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Briefing</label>
-                    <textarea name="brief" rows={8} required defaultValue={editingTask?.brief} className="w-full p-5 rounded-3xl bg-slate-50/50 dark:bg-slate-800/30 border-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700 dark:text-slate-300 outline-none resize-none placeholder-slate-200 dark:placeholder-slate-800" placeholder="Instructions for execution..."></textarea>
+                    <textarea ref={briefRef} name="brief" rows={8} required defaultValue={editingTask?.brief} className="w-full p-5 rounded-3xl bg-slate-50/50 dark:bg-slate-800/30 border-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700 dark:text-slate-300 outline-none resize-none placeholder-slate-200 dark:placeholder-slate-800" placeholder="Instructions for execution..."></textarea>
                   </div>
                   {editingTask && (
                     <div className="space-y-3">

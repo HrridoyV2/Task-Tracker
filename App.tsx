@@ -45,7 +45,13 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    document.documentElement.className = theme;
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+    } else {
+      document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
+    }
     localStorage.setItem('theme', theme);
   }, [theme]);
 
@@ -70,10 +76,10 @@ const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 transition-colors">
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 transition-colors">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Connecting to Workspace...</p>
+          <p className="text-slate-500 dark:text-slate-500 font-black text-xs uppercase tracking-[0.2em] animate-pulse">Initializing Portal...</p>
         </div>
       </div>
     );
@@ -103,8 +109,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors">
-      {/* Desktop Sidebar */}
+    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-[#0a0a0c] transition-colors">
       <Sidebar 
         role={currentUser.role} 
         activePage={activePage} 
@@ -112,10 +117,9 @@ const App: React.FC = () => {
         onLogout={handleLogout}
       />
 
-      {/* Mobile Sidebar Overlay */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         >
           <div 
@@ -142,8 +146,11 @@ const App: React.FC = () => {
           onPageChange={handlePageChange}
           onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
         />
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
-          {renderPage()}
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar relative">
+          <div className="absolute inset-0 pointer-events-none mesh-gradient opacity-10 dark:opacity-20 z-0"></div>
+          <div className="relative z-10 max-w-7xl mx-auto">
+            {renderPage()}
+          </div>
         </main>
       </div>
     </div>
